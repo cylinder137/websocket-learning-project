@@ -1,0 +1,17 @@
+{
+  "name": "websocket-drag-circle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "教学项目：Vue3 + 原生 WebSocket(ws) 实现跨端同步拖拽的圆",
+  "type": "module",
+  "scripts": {
+    "server": "node server/index.js",
+    "server:watch": "node --watch server/index.js",
+    "web": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "test:client": "node server/test-client.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

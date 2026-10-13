@@ -1,0 +1,172 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "protocol.schema.json",
+  "title": "拖圆同步协议 · WebSocket 消息契约（教学版）",
+  "description": "【这份文件是什么】\n本项目 WebSocket 上传输的每一条 JSON 消息的契约：有哪些字段、什么类型、谁是必填。前后端收发都按它校验（校验器见 shared/protocol.js）。\n\n【两个方向，六种消息】\n上行（客户端 → 服务端）：dragRequest、helloRequest\n下行（服务端 → 客户端）：initEvent、dragEvent、helloEvent、onlineEvent\ndrag 和 hello 在上下行各有一种形态、字段不同，所以分开定义。\n\n【schema 管什么、不管什么】\n管：结构（必填字段、不许有多余字段）和类型（string/number/integer）。\n不管：数值的合法范围。比如 x/y 是否超出画布，由服务端 clamp（Math.max/Math.min）夹回边界，而不是拒收 —— 校验是「非黑即白」，范围是「修正到边界」，两种语义不同，所以范围规则留在业务代码里（server/index.js 的 drag 分支）。\n\n【为什么用 description 写这么长的说明】\nJSON 文件不能写 // 注释，JSON Schema 的惯例就是把文档写进 title/description 字段，本文件里所有 description 都当注释读。\n\n【运行时怎么用】\n见 shared/protocol.js：按 msg.type 在 definitions 里查表，用对应的子 schema 做精确校验。根部的 oneOf 供人阅读和编辑器提示用。\n\n【为什么用 draft-07 的 definitions 而不是新版的 $defs】\n一个意思（2019-09 草案才改名 $defs）。draft-07 至今是编辑器/工具支持最广的版本，教学项目求稳。",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/definitions/dragRequest" },
+    { "$ref": "#/definitions/helloRequest" },
+    { "$ref": "#/definitions/initEvent" },
+    { "$ref": "#/definitions/dragEvent" },
+    { "$ref": "#/definitions/helloEvent" },
+    { "$ref": "#/definitions/onlineEvent" }
+  ],
+  "definitions": {
+    "dragRequest": {
+      "title": "drag 请求（客户端 → 服务端）",
+      "description": "本端把圆拖到了新位置，请服务端更新权威坐标并广播给其它端。只带 type/x/y —— from/name 是服务端广播时（dragEvent）才加的，客户端发的时候没有。发送处：web/src/App.vue 的 moveTo()。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "x", "y"],
+      "properties": {
+        "type": {
+          "const": "drag",
+          "description": "消息类型。用 const 钉死：一条 drag 消息的 type 只可能是这一个值。"
+        },
+        "x": {
+          "type": "number",
+          "description": "圆心横坐标（画布内部坐标，画布宽 640）。前端发送前会取整减小消息体积；服务端会 clamp 到 0~1000。"
+        },
+        "y": {
+          "type": "number",
+          "description": "圆心纵坐标（画布内部坐标，画布高 420）。范围处理同 x。"
+        }
+      },
+      "examples": [{ "type": "drag", "x": 222, "y": 111 }]
+    },
+    "helloRequest": {
+      "title": "hello 请求（客户端 → 服务端）",
+      "description": "客户端上线后的自我介绍。服务端收到后转述给其它端（helloEvent），主要作用是让服务端日志更可读。text 可省略，服务端会兜底成空字符串。发送处：web/src/useSyncSocket.js 的 onopen。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "const": "hello",
+          "description": "消息类型。"
+        },
+        "text": {
+          "type": "string",
+          "description": "想说的那句话，可选。"
+        }
+      },
+      "examples": [{ "type": "hello", "text": "浏览器前端上线" }]
+    },
+    "initEvent": {
+      "title": "init 事件（服务端 → 单个新连接，不是广播）",
+      "description": "新连接建立时，服务端把当前权威状态单发给这一个客户端。这是状态同步的基本套路：先发全量快照（init），之后只发增量（dragEvent）。发送处：server/index.js 的 connection 事件。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "x", "y", "id", "online"],
+      "properties": {
+        "type": {
+          "const": "init",
+          "description": "消息类型。"
+        },
+        "x": {
+          "type": "number",
+          "description": "圆当前横坐标（服务端权威值）。"
+        },
+        "y": {
+          "type": "number",
+          "description": "圆当前纵坐标（服务端权威值）。"
+        },
+        "id": {
+          "type": "integer",
+          "description": "服务端给这个连接分配的身份证号（自增，从 1 开始）。前端用它显示本端编号、区分回声。"
+        },
+        "online": {
+          "type": "integer",
+          "description": "当前在线连接数（含本端）。"
+        }
+      },
+      "examples": [{ "type": "init", "x": 150, "y": 150, "id": 3, "online": 1 }]
+    },
+    "dragEvent": {
+      "title": "drag 事件（服务端 → 广播，不含发送者）",
+      "description": "某个客户端的 dragRequest 被服务端接受后，广播给其它客户端的形态。比 dragRequest 多了 from/name：from 用来区分这条是谁推来的，name 是可读昵称。发送者自己收不到这条（广播时排除了他，避免回声）。发送处：server/index.js 的 broadcast。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "x", "y", "from", "name"],
+      "properties": {
+        "type": {
+          "const": "drag",
+          "description": "消息类型。"
+        },
+        "x": {
+          "type": "number",
+          "description": "服务端 clamp 之后的权威横坐标。"
+        },
+        "y": {
+          "type": "number",
+          "description": "服务端 clamp 之后的权威纵坐标。"
+        },
+        "from": {
+          "type": "integer",
+          "description": "这次拖拽是谁发起的（发起端的 id）。"
+        },
+        "name": {
+          "type": "string",
+          "description": "发起端的可读昵称，如 client-3。"
+        }
+      },
+      "examples": [{ "type": "drag", "x": 222, "y": 111, "from": 1, "name": "client-1" }]
+    },
+    "helloEvent": {
+      "title": "hello 事件（服务端 → 广播，不含发送者）",
+      "description": "把某端的自我介绍转述给其它端。发送处：server/index.js 的 hello 分支。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "name", "text"],
+      "properties": {
+        "type": {
+          "const": "hello",
+          "description": "消息类型。"
+        },
+        "from": {
+          "type": "integer",
+          "description": "谁在打招呼。"
+        },
+        "name": {
+          "type": "string",
+          "description": "打招呼一方的昵称。"
+        },
+        "text": {
+          "type": "string",
+          "description": "打招呼的内容（请求里省略时服务端兜底为空字符串）。"
+        }
+      },
+      "examples": [{ "type": "hello", "from": 1, "name": "client-1", "text": "浏览器前端上线" }]
+    },
+    "onlineEvent": {
+      "title": "online 事件（服务端 → 广播）",
+      "description": "在线人数变化通知。有人加入时带 from（新人是谁），有人离开时带 left（谁走了），二选一 —— 这层互斥关系 schema 没有强制（得写 anyOf，教学上不值得），靠注释约定。发送处：server/index.js 的 connection / close。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "online"],
+      "properties": {
+        "type": {
+          "const": "online",
+          "description": "消息类型。"
+        },
+        "online": {
+          "type": "integer",
+          "description": "变化后的在线连接数（最后一人离开时会减到 0）。"
+        },
+        "from": {
+          "type": "integer",
+          "description": "新加入者的 id（加入时才有）。"
+        },
+        "left": {
+          "type": "integer",
+          "description": "离开者的 id（离开时才有）。"
+        }
+      },
+      "examples": [
+        { "type": "online", "online": 2, "from": 2 },
+        { "type": "online", "online": 1, "left": 2 }
+      ]
+    }
+  }
+}

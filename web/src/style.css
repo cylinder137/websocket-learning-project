@@ -1,0 +1,14 @@
+/* 全局样式（App.vue 里的是组件级 scoped 样式） */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #020617;
+  color: #e2e8f0;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  /* 手机上拖动时不要出现橡皮筋效果 */
+  overscroll-behavior: none;
+}
